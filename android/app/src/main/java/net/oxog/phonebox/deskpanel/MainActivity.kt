@@ -756,7 +756,7 @@ class MainActivity : Activity(), SensorEventListener {
             @Suppress("DEPRECATION")
             languages.put(configuration.locale.toLanguageTag())
         }
-        return "window.__phoneboxKey='$bridgeKey';window.__phoneboxLanguages=$languages;"
+        return "window.__phoneboxKey='$bridgeKey';window.__phoneboxLanguages=$languages;try{localStorage.setItem('pb-wv-dismissed','1');}catch(e){};"
     }
 
     private fun giveKey(view: WebView, url: String?) {

@@ -97,12 +97,15 @@
       return;
     }
     if (window.CSS && typeof CSS.supports === 'function' && CSS.supports('font-size', '1cqw')) return;
-    try { if (sessionStorage.getItem('pb-wv-dismissed') === '1') return; } catch (_) {}
+    try { if (sessionStorage.getItem('pb-wv-dismissed') === '1' || localStorage.getItem('pb-wv-dismissed') === '1') return; } catch (_) {}
     el.hidden = false; el.style.display = 'flex';
     if (btn) btn.onclick = function (e) {
       e.stopPropagation();
       el.style.display = ''; el.hidden = true;
-      try { sessionStorage.setItem('pb-wv-dismissed', '1'); } catch (_) {}
+      try {
+        sessionStorage.setItem('pb-wv-dismissed', '1');
+        localStorage.setItem('pb-wv-dismissed', '1');
+      } catch (_) {}
     };
   } catch (_) {}
 })();
