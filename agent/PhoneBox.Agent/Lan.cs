@@ -67,11 +67,20 @@ public static class Lan
     /// gateway: a Hyper-V external switch takes over the physical NIC's address and route, so dropping it
     /// would leave the pairing link with no usable host. Host-only and NAT virtual adapters have no
     /// gateway, so they are skipped as before.
+    /// Mobile Hotspot, Wi-Fi Direct and hosted networks are never skipped: external devices (phones) connect
+    /// directly to them, and as the AP host, the adapter has no default gateway.
     /// </summary>
-    internal static bool ShouldSkipAdapter(string desc, bool hasIpv4Gateway) =>
-        !hasIpv4Gateway && (desc.Contains("Virtual", StringComparison.OrdinalIgnoreCase) || desc.Contains("vEthernet", StringComparison.OrdinalIgnoreCase)
+    internal static bool ShouldSkipAdapter(string desc, bool hasIpv4Gateway)
+    {
+        if (desc.Contains("Wi-Fi Direct", StringComparison.OrdinalIgnoreCase)
+            || desc.Contains("Hotspot", StringComparison.OrdinalIgnoreCase)
+            || desc.Contains("Hosted Network", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return !hasIpv4Gateway && (desc.Contains("Virtual", StringComparison.OrdinalIgnoreCase) || desc.Contains("vEthernet", StringComparison.OrdinalIgnoreCase)
             || desc.Contains("Hyper-V", StringComparison.OrdinalIgnoreCase) || desc.Contains("WSL", StringComparison.OrdinalIgnoreCase)
             || desc.Contains("VMware", StringComparison.OrdinalIgnoreCase) || desc.Contains("Bluetooth", StringComparison.OrdinalIgnoreCase));
+    }
 
     public static bool Matches(string? header, string token)
     {

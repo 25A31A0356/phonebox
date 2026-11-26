@@ -321,6 +321,23 @@ class AgentLink(private val context: Context) {
         }
     }
 
+    private fun currentGateway(): String? = try {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val net = cm?.activeNetwork
+            val props = cm?.getLinkProperties(net)
+            props?.routes?.firstOrNull { it.isDefaultRoute && it.gateway is java.net.Inet4Address }?.gateway?.hostAddress
+        } else {
+            @Suppress("DEPRECATION")
+            val wm = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            @Suppress("DEPRECATION")
+            val ip = wm?.dhcpInfo?.gateway ?: 0
+            if (ip != 0) {
+                "${ip and 0xff}.${(ip shr 8) and 0xff}.${(ip shr 16) and 0xff}.${(ip shr 24) and 0xff}"
+            } else null
+        }
+    } catch (_: Exception) { null }
+
     private fun wifi(method: String, pathAndQuery: String, readTimeout: Int = 4000): Reply? =
         wifi(method, pathAndQuery, readTimeout, null, null)
 
@@ -328,7 +345,8 @@ class AgentLink(private val context: Context) {
     private fun wifi(method: String, pathAndQuery: String, readTimeout: Int, body: ByteArray?, contentType: String?, target: Pc? = null,
                      headers: Map<String, String> = emptyMap()): Reply? {
         val pc = target ?: activePc() ?: return null
-        val hosts = pc.hosts
+        val gateway = currentGateway()?.takeIf { PairLink.isLocalAddress(it) }
+        val hosts = if (gateway != null && !pc.hosts.contains(gateway)) pc.hosts + gateway else pc.hosts
         val token = pc.token
         val pin = pc.id
         val port = pc.port
@@ -340,7 +358,8 @@ class AgentLink(private val context: Context) {
         val order = hosts.indices.sortedBy { if (target == null && it == preferredHost) -1 else it }
         for (i in order) {
             try {
-                val c = URL("https://${hosts[i]}:$port$pathAndQuery").openConnection() as HttpsURLConnection
+                val host = hosts[i]
+                val c = URL("https://$host:$port$pathAndQuery").openConnection() as HttpsURLConnection
                 c.sslSocketFactory = f
                 c.hostnameVerifier = PINNED_HOSTNAME_VERIFIER // identity is the pinned certificate
                 c.connectTimeout = 1500
@@ -348,6 +367,14 @@ class AgentLink(private val context: Context) {
                 headers.forEach { (name, value) -> c.setRequestProperty(name, value) }
                 val r = send(c, method, readTimeout, body, contentType)
                 if (target == null) preferredHost = i
+                if (!pc.hosts.contains(host)) {
+                    synchronized(pcsLock) {
+                        val current = pcs.firstOrNull { it.id == pc.id }
+                        if (!closed && current != null && !current.hosts.contains(host)) {
+                            savePcs(pcs.map { if (it.id == pc.id) Pc(it.id, it.name, it.hosts + host, it.port, it.token, it.macs) else it }, activeId)
+                        }
+                    }
+                }
                 return r
             } catch (e: Exception) {
                 // try the next address
@@ -636,8 +663,9 @@ class AgentLink(private val context: Context) {
             fun parse(uri: Uri?): PairLink? {
                 if (uri == null) return null
                 val raw = when {
-                    uri.scheme == "https" && uri.host == "ersinkoc.github.io" && uri.path?.startsWith("/phonebox/pair") == true -> uri.encodedFragment
-                    uri.scheme == "phonebox" && uri.host == "pair" -> uri.encodedQuery
+                    (uri.scheme == "https" || uri.scheme == "http") && (uri.path?.contains("/pair") == true) ->
+                        (if (uri.encodedFragment != null) uri.encodedFragment else uri.fragment) ?: uri.encodedQuery ?: uri.query
+                    uri.scheme == "phonebox" && uri.host == "pair" -> uri.encodedQuery ?: uri.query
                     else -> null
                 } ?: return null
                 val q = raw.split('&').mapNotNull { part ->
@@ -663,8 +691,10 @@ class AgentLink(private val context: Context) {
      */
     fun claim(link: PairLink): PairFailure? {
         val pinned = pinnedFactory(link.fingerprint)
-        var problem: PairFailure = PairFailure.Unreachable(link.pc, link.hosts)
-        for (host in link.hosts) {
+        val gateway = currentGateway()?.takeIf { PairLink.isLocalAddress(it) }
+        val hostsToTry = if (gateway != null && !link.hosts.contains(gateway)) link.hosts + gateway else link.hosts
+        var problem: PairFailure = PairFailure.Unreachable(link.pc, hostsToTry)
+        for (host in hostsToTry) {
             try {
                 val c = URL("https://$host:${link.port}/api/pair/claim").openConnection() as HttpsURLConnection
                 c.instanceFollowRedirects = false
