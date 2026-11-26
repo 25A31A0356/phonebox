@@ -290,7 +290,7 @@ public static class Shortcuts
                     MonitorOff();
                     break;
                 case "builtin:mute":
-                    Keys.Tap(Keys.VK_VOLUME_MUTE);
+                    (audio ?? new AudioControl()).ToggleMute();
                     break;
 #else
                 case "builtin:monitor-off":
